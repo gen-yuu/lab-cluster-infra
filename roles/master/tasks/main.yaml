@@ -1,0 +1,192 @@
+---
+# Kubernetesマスターノードセットアップ
+
+# --- クラスター初期化設定 ---
+- name: "MASTER | 01: Initialise or join control plane"
+  block:
+    - name: Detect existing admin.conf
+      ansible.builtin.stat:
+        path: /etc/kubernetes/admin.conf
+      register: admin_conf
+      changed_when: false
+
+    - name: Render kubeadm config
+      ansible.builtin.template:
+        src: kubeadm-config.yaml.j2
+        dest: /tmp/kubeadm-config.yaml
+        owner: root
+        mode: '0644'
+      when: not admin_conf.stat.exists
+
+    - name: kubeadm init (primary CP)
+      ansible.builtin.command: >
+        kubeadm init
+        --config /tmp/kubeadm-config.yaml
+        --upload-certs
+      args:
+        creates: /etc/kubernetes/admin.conf
+      when: not admin_conf.stat.exists
+      register: kubeadm_primary
+
+    - name: Ensure join credentials directory
+      when: inventory_hostname == groups['masters'][0]
+      run_once: true
+      ansible.builtin.file:
+        path: /etc/kubernetes/join-creds
+        state: directory
+        owner: root
+        mode: '0700'
+
+    - name: Create/refresh kubeadm token (run_once)
+      when: inventory_hostname == groups['masters'][0]
+      run_once: true
+      ansible.builtin.shell: |
+        kubeadm token create --ttl 0 --print-join-command \
+        | awk '{print $5}'                       # → <token>
+      register: cp_token
+      changed_when: false
+
+    - name: Create/refresh certificate-key (run_once)
+      when: inventory_hostname == groups['masters'][0]
+      run_once: true
+      ansible.builtin.command: kubeadm certs certificate-key
+      register: cert_key
+      changed_when: false
+
+    - name: Save credentials to files
+      when: inventory_hostname == groups['masters'][0]
+      run_once: true
+      ansible.builtin.copy:
+        dest: "/etc/kubernetes/join-creds/{{ item.name }}.txt"
+        content: "{{ item.value }}"
+        owner: root
+        mode: '0600'
+      loop:
+        - { name: token, value: "{{ cp_token.stdout }}" }
+        - { name: cert-key, value: "{{ cert_key.stdout }}" }
+
+    - name: Slurp join credentials from primary
+      delegate_to: "{{ groups['masters'][0] }}"
+      run_once: true
+      ansible.builtin.slurp:
+        src: "/etc/kubernetes/join-creds/{{ item }}.txt"
+      loop: ["token", "cert-key"]
+      register: join_creds
+
+    - name: Set join facts (per play)
+      set_fact:
+        kube_join_token: "{{ (join_creds.results | selectattr('item','eq','token')    | first).content | b64decode | trim }}"
+        kube_cert_key:   "{{ (join_creds.results | selectattr('item','eq','cert-key') | first).content | b64decode | trim }}"
+      run_once: true
+
+    - name: kubeadm join (secondary CP)
+      ansible.builtin.command: >
+        kubeadm join {{ k8s_api_endpoint }}
+        --token {{ kube_join_token }}
+        --discovery-token-unsafe-skip-ca-verification
+        --control-plane
+        --certificate-key {{ kube_cert_key }}
+      when:
+        - admin_conf.stat.exists
+        - inventory_hostname != groups['masters'][0]
+  tags: 
+    - master_setup
+
+# --- srv-admin kubeconfig 配置 ---
+- name: "MASTER | 02: Set up kubeconfig for 'srv-admin'"
+  block:
+    - name: Ensure .kube directory
+      ansible.builtin.file:
+        path: /home/srv-admin/.kube
+        state: directory
+        owner: srv-admin
+        group: srv-admin
+        mode: '0700'
+
+    - name: Copy admin.conf to srv-admin
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/srv-admin/.kube/config
+        remote_src: yes
+        owner: srv-admin
+        group: srv-admin
+        mode: '0600'
+  tags: 
+    - kubeconfig
+
+# --- worker参加用joinスクリプト生成 ---
+- name: "MASTER | 03: Generate worker join script"
+  block:
+    - name: Create / refresh worker join command (reuse token)
+      ansible.builtin.shell: |
+        echo "kubeadm join {{ k8s_api_endpoint }} \
+        --token {{ kube_join_token }} \
+        --discovery-token-unsafe-skip-ca-verification"
+      register: join_cmd
+      changed_when: false
+
+    - name: Save join script
+      ansible.builtin.copy:
+        content: |-
+          #!/bin/bash
+          {{ join_cmd.stdout }}
+        dest: /home/srv-admin/join-worker.sh
+        owner: srv-admin
+        mode: '0700'
+  tags: 
+    - join_cmd
+
+# --- Node Ready を待機 ----------------------------------------------------
+- name: "MASTER | 05: Wait node Ready before CNI"
+  ansible.builtin.shell: |
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+      get nodes --no-headers | awk '{print $2}'
+  register: node_state
+  retries: 10
+  delay: 15
+  until: "'Ready' in node_state.stdout"
+  changed_when: false
+  tags: 
+    - wait_node
+
+# --- MASTER | 06: Cilium CNI デプロイ --------------------------------------------------
+- name: "MASTER | 06: Install / upgrade Cilium"
+  block:
+    - name: Add Cilium Helm repo
+      community.kubernetes.helm_repository:
+        name: cilium
+        repo_url: https://helm.cilium.io/
+        state: present
+
+    - name: Deploy Cilium
+      community.kubernetes.helm:
+        name: cilium
+        chart_ref: cilium/cilium
+        chart_version: "{{ cilium_chart_version }}"
+        release_namespace: kube-system
+        create_namespace: true
+        kubeconfig: /etc/kubernetes/admin.conf
+        values:
+          kubeProxyReplacement: true
+          kubeProxy: false
+          clusterPoolIPv4PodCIDR: "{{ k8s_pod_network_cidr }}"
+          k8sServiceHost: "{{ k8s_api_endpoint.split(':')[0] }}"
+          k8sServicePort: "{{ k8s_api_endpoint.split(':')[1] | default(6443) }}"
+  tags: 
+    - cilium
+
+- name: "MASTER | 07: Restart containerd and kubelet after CNI deployment"
+  block:
+    - name: Restart containerd on master
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: yes
+
+    - name: Restart kubelet on master
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+        daemon_reload: yes
+  tags:
+    - cni_post_config

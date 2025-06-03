@@ -1,0 +1,103 @@
+---
+# Kubernetesワーカーノードセットアップ
+- name: "WORKER | 00: Reset node to clean state if previously joined"
+  block:
+    - name: Check if kubelet.conf exists (indicates prior K8s setup)
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_kubelet_conf_stat
+      changed_when: false
+
+    - name: Run kubeadm reset if node was previously part of a cluster
+      ansible.builtin.command: "kubeadm reset -f --cri-socket={{ containerd_cri_socket_path | default('unix:///var/run/containerd/containerd.sock') }}"
+      when: worker_kubelet_conf_stat.stat.exists
+      changed_when: true 
+
+    - name: "WORKER | Check for flannel.1 interface"
+      ansible.builtin.command: ip link show flannel.1
+      register: flannel_interface_check_worker
+      changed_when: false
+      failed_when: false 
+
+    - name: "WORKER | Bring down and delete flannel.1 interface if it exists"
+      block:
+        - name: Bring down flannel.1 on worker
+          ansible.builtin.command: sudo ip link set flannel.1 down
+        - name: Delete flannel.1 on worker
+          ansible.builtin.command: sudo ip link delete flannel.1
+      when: flannel_interface_check_worker.rc == 0
+
+    - name: Remove CNI configuration directory
+      ansible.builtin.file:
+        path: /etc/cni/net.d
+        state: absent 
+      when: worker_kubelet_conf_stat.stat.exists 
+
+    - name: Recreate CNI configuration directory (empty)
+      ansible.builtin.file:
+        path: /etc/cni/net.d
+        state: directory 
+        mode: '0755'
+        owner: root
+        group: root
+  tags:
+    - kube_reset 
+
+- name: "WORKER | 01: Join the Kubernetes cluster"
+  block:
+    - name: Check if node has already joined the cluster
+      ansible.builtin.stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf_stat
+      changed_when: false
+
+    - name: Fetch worker join script content from master
+      ansible.builtin.slurp:
+        src: "/home/{{ ansible_user }}/join-worker.sh" 
+      register: join_script_content_slurped
+      delegate_to: "{{ groups['masters'][0] }}" 
+      run_once: true 
+      when: not kubelet_conf_stat.stat.exists # まだ参加していないノードがある場合のみ実行
+
+    - name: Ensure /tmp directory for join script exists on worker
+      ansible.builtin.file:
+        path: /tmp
+        state: directory
+        mode: '0777'
+      when: not kubelet_conf_stat.stat.exists and join_script_content_slurped.content is defined
+
+    - name: Copy join script to worker node
+      ansible.builtin.copy:
+        content: "{{ join_script_content_slurped.content | b64decode }}"
+        dest: /tmp/join-worker.sh
+        mode: '0700'
+      when: not kubelet_conf_stat.stat.exists and join_script_content_slurped.content is defined
+
+    - name: Execute kubeadm join script
+      ansible.builtin.command: /tmp/join-worker.sh
+      when: not kubelet_conf_stat.stat.exists and join_script_content_slurped.content is defined
+      changed_when: true
+
+    - name: Remove join script from worker node
+      ansible.builtin.file:
+        path: /tmp/join-worker.sh
+        state: absent
+      when: not kubelet_conf_stat.stat.exists and join_script_content_slurped.content is defined
+  tags:
+    - kube_join
+
+- name: "WORKER | 02: Restart containerd and kubelet after joining and CNI init"
+  block:
+    - name: Restart containerd on worker
+      ansible.builtin.systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: yes
+
+    - name: Restart kubelet on worker
+      ansible.builtin.systemd:
+        name: kubelet
+        state: restarted
+        daemon_reload: yes
+  tags:
+    - cni_post_config

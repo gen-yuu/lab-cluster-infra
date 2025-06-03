@@ -1,0 +1,5 @@
+- name: Cleanup flannel settings
+  hosts: masters
+  become: yes
+  roles:
+    - role: cleanup_flannel
