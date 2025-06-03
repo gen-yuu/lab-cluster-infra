@@ -1,20 +1,20 @@
 ---
 # Kubernetesノード共通セットアップ（Ubuntu 22.04）
 
-# --- 前提パッケージのインストール ---
+# --- 必要パッケージのインストール ---
 - name: "COMMON | 00: Install prerequisite packages"
   ansible.builtin.apt:
     name:
-      - apt-transport-https # HTTPS経由のAPTリポジトリに必要
-      - ca-certificates   # CA証明書（HTTPS通信に必要）
-      - curl              # ファイルダウンロードなどに使用
-      - gnupg             # GPGキーの操作に必要
+      - apt-transport-https 
+      - ca-certificates   
+      - curl              
+      - gnupg             
     state: present
     update_cache: yes
   tags:
     - prereqs
 
-# --- Python prerequisites for Ansible Kubernetes modules ---
+# --- Python3とKubernetesライブラリのインストール ---
 - name: "COMMON | Install Python pip and Kubernetes library"
   block:
     - name: Ensure python3-pip is installed
@@ -31,7 +31,7 @@
   tags:
     - k8s_python_deps 
 
-# --- srv-adminユーザ／グループの作成 ---
+# --- srv-adminユーザ/グループの作成 ---
 - name: "COMMON | 01: Create a unified admin user 'srv-admin'"
   block:
     - name: Ensure group 'srv-admin' exists
