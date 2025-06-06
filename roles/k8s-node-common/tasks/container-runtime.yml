@@ -1,0 +1,66 @@
+---
+# --- Docker APTリポジトリ設定 & containerd設定 ---
+- name: "K8S-NODE-COMMON | CONTAINER | Ensure /etc/apt/keyrings directory exists"
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Install Docker GPG key (ASCII, idempotent)"
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+    force: false
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Add Docker APT repository"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_arch_map[ansible_architecture] | default('amd64') }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+    update_cache: true
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Install containerd package"
+  ansible.builtin.apt:
+    name: "{{ containerd_pkg | default('containerd.io') }}"
+    state: present
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Ensure /etc/containerd directory exists"
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    mode: "0755"
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Deploy containerd config"
+  ansible.builtin.template:
+    src: containerd_config.toml.j2 # templates/ ディレクトリ配下に配置
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart containerd # handlers/main.yml で定義
+  tags:
+    - container_runtime
+
+- name: "K8S-NODE-COMMON | CONTAINER | Ensure containerd service is running and enabled"
+  ansible.builtin.systemd:
+    name: containerd
+    state: started
+    enabled: true
+  tags:
+    - container_runtime

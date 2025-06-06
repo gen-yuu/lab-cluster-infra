@@ -1,0 +1,17 @@
+- name: "Cleanup Flannel: Remove kube-flannel namespace completely"
+  kubernetes.core.k8s: # または community.kubernetes.k8s_namespace など、お使いのモジュール名
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: kube-flannel 
+    kubeconfig: "/home/{{ ansible_user }}/.kube/config" # ★ srv-adminのkubeconfigを明示的に指定
+  
+  # このタスクはマスターノードで実行させる
+  delegate_to: "{{ groups['masters'][0] }}" 
+  run_once: true                            
+  
+  vars:
+    ansible_user: srv-admin 
+  
+  tags:
+    - cleanup_flannel

@@ -1,0 +1,121 @@
+---
+- name: "CONTROL-PLANE | Detect existing admin.conf to check for initialization"
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: admin_conf
+  changed_when: false
+  tags:
+    - master_setup
+
+- name: "CONTROL-PLANE | Render kubeadm config for initialization"
+  ansible.builtin.template:
+    src: kubeadm-config.yml.j2
+    dest: /tmp/kubeadm-config.yml
+    owner: root
+    mode: "0644"
+  when: not admin_conf.stat.exists # 初期化されていない場合のみ
+  tags:
+    - master_setup
+
+- name: "CONTROL-PLANE | Initialize the Kubernetes cluster using kubeadm"
+  ansible.builtin.command: "kubeadm init --config /tmp/kubeadm-config.yml --upload-certs"
+  args:
+    creates: /etc/kubernetes/admin.conf # このファイルが存在すれば再実行しない
+  when: not admin_conf.stat.exists # 初期化されていない場合のみ
+  tags:
+    - master_setup
+
+# --- srv-admin用 kubeconfig 設定 ---
+- name: "CONTROL-PLANE | Ensure .kube directory exists for srv-admin"
+  ansible.builtin.file:
+    path: "/home/{{ admin_user_name | default('srv-admin') }}/.kube" # 変数化を推奨
+    state: directory
+    owner: "{{ admin_user_name | default('srv-admin') }}"
+    group: "{{ admin_user_name | default('srv-admin') }}"
+    mode: "0700"
+  tags:
+    - kubeconfig
+
+- name: "CONTROL-PLANE | Copy admin.conf to srv-admin's .kube directory"
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "/home/{{ admin_user_name | default('srv-admin') }}/.kube/config"
+    remote_src: true
+    owner: "{{ admin_user_name | default('srv-admin') }}"
+    group: "{{ admin_user_name | default('srv-admin') }}"
+    mode: "0600"
+  tags:
+    - kubeconfig
+
+- name: "CONTROL-PLANE | Check if helm is already installed"
+  ansible.builtin.command: "which helm"
+  register: helm_exists
+  changed_when: false
+  failed_when: false
+  tags:
+    - helm
+
+- name: "CONTROL-PLANE | Download Helm installation script"
+  ansible.builtin.get_url:
+    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+    dest: /tmp/get_helm.sh
+    mode: "0755"
+  when: helm_exists.rc != 0
+  tags:
+    - helm
+
+- name: "CONTROL-PLANE | Run Helm installation script"
+  ansible.builtin.command: /tmp/get_helm.sh
+  changed_when: true
+  when: helm_exists.rc != 0
+  tags:
+    - helm
+
+- name: "CONTROL-PLANE | Check if helm-diff plugin is installed"
+  ansible.builtin.command: "helm plugin list"
+  register: helm_plugins
+  changed_when: false
+  tags:
+    - helm
+
+- name: "CONTROL-PLANE | Install helm-diff plugin"
+  ansible.builtin.command: "helm plugin install https://github.com/databus23/helm-diff"
+  when: "'diff' not in helm_plugins.stdout" # 'diff'という文字がなければインストール
+  changed_when: true
+  tags:
+    - helm
+
+# --- CNIプラグインのデプロイ ---
+- name: "CONTROL-PLANE | Wait for the node to be Ready before installing CNI"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    kubectl --kubeconfig=/etc/kubernetes/admin.conf \
+      get nodes {{ inventory_hostname }} --no-headers | awk '{print $2}'
+  register: node_state
+  retries: 10
+  delay: 15
+  until: "'Ready' in node_state.stdout"
+  changed_when: false
+  when: not admin_conf.stat.exists # 初回init時のみ待機
+  tags:
+    - cilium
+    - wait_node
+
+- name: "CONTROL-PLANE | Add Cilium Helm repository"
+  community.kubernetes.helm_repository: # noqa fqcn[canonical]
+    name: cilium
+    repo_url: https://helm.cilium.io/
+  tags:
+    - cilium
+
+- name: "CONTROL-PLANE | Deploy or upgrade Cilium using Helm"
+  community.kubernetes.helm: # noqa fqcn[canonical]
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "{{ cilium_chart_version }}"
+    release_namespace: kube-system
+    create_namespace: true
+    kubeconfig: /etc/kubernetes/admin.conf
+    values: "{{ lookup('template', 'cilium_values.yml.j2') | from_yaml }}"
+  tags:
+    - cilium

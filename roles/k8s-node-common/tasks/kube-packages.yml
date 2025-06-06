@@ -1,0 +1,44 @@
+---
+# --- Kubernetes APTレポジトリ&パッケージ ---
+- name: "K8S-NODE-COMMON | KUBE-PACKAGES | Install Kubernetes GPG key"
+  ansible.builtin.get_url:
+    url: "https://pkgs.k8s.io/core:/stable:/v{{ kube_minor }}/deb/Release.key"
+    dest: "/etc/apt/keyrings/kubernetes-{{ kube_minor }}.asc"
+    mode: "0644"
+    force: false
+  tags:
+    - kube_packages
+
+- name: "K8S-NODE-COMMON | KUBE-PACKAGES | Add Kubernetes APT repository v{{ kube_minor }}"
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes-{{ kube_minor }}.asc]
+      https://pkgs.k8s.io/core:/stable:/v{{ kube_minor }}/deb/ /
+    filename: kubernetes
+    state: present
+    update_cache: true
+  tags:
+    - kube_packages
+
+- name: "K8S-NODE-COMMON | KUBE-PACKAGES | Install Kubernetes packages {{ kube_version }}"
+  ansible.builtin.apt:
+    name:
+      - "kubelet={{ kube_version }}"
+      - "kubeadm={{ kube_version }}"
+      - "kubectl={{ kube_version }}"
+    state: present
+    allow_change_held_packages: true
+  notify: Restart kubelet # handlers/main.yml で定義
+  tags:
+    - kube_packages
+
+- name: "K8S-NODE-COMMON | KUBE-PACKAGES | Hold Kubernetes packages"
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  tags:
+    - kube_packages

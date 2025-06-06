@@ -1,0 +1,25 @@
+---
+# --- 必要パッケージのインストール ---
+- name: "BASE-OS-SETUP | PREREQS | Install essential system packages"
+  ansible.builtin.apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - git
+      - python3-pip
+    state: present
+    update_cache: true
+  tags:
+    - prereqs
+    - system_packages
+
+- name: "BASE-OS-SETUP | PREREQS | Install Kubernetes Python library via pip3"
+  ansible.builtin.pip:
+    name: kubernetes
+    executable: pip3
+    state: present
+  tags:
+    - prereqs
+    - k8s_python_deps
