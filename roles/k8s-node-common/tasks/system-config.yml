@@ -1,0 +1,57 @@
+---
+# --- swap無効化 ---
+- name: "K8S-NODE-COMMON | SYSTEM | Turn off all swap devices"
+  ansible.posix.mount:
+    name: none
+    fstype: swap
+    state: absent
+  tags:
+    - system_config
+    - swap
+
+- name: "K8S-NODE-COMMON | SYSTEM | Comment out swap lines in /etc/fstab"
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*\/.*?\s+swap\s+.*)$'
+    replace: '# \1'
+  tags:
+    - system_config
+    - swap
+
+# --- カーネル設定 ---
+- name: "K8S-NODE-COMMON | SYSTEM | Persist kernel modules (for boot time)"
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/k8s.conf
+    content: |
+      overlay
+      br_netfilter
+    mode: "0644"
+  tags:
+    - system_config
+    - kernel_setting
+
+- name: "K8S-NODE-COMMON | SYSTEM | Load kernel modules immediately"
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - overlay
+    - br_netfilter
+  tags:
+    - system_config
+    - kernel_setting
+
+- name: "K8S-NODE-COMMON | SYSTEM | Ensure kernel sysctl params"
+  ansible.posix.sysctl:
+    sysctl_file: /etc/sysctl.d/99-kubernetes-cri.conf
+    reload: true
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+  loop:
+    - { key: net.bridge.bridge-nf-call-iptables, value: "1" }
+    - { key: net.bridge.bridge-nf-call-ip6tables, value: "1" }
+    - { key: net.ipv4.ip_forward, value: "1" }
+  tags:
+    - system_config
+    - kernel_setting

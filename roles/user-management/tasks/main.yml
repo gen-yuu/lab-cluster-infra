@@ -1,0 +1,39 @@
+---
+# --- srv-adminユーザ/グループの作成 ---
+- name: "USER-MANAGEMENT | Ensure group 'srv-admin' exists"
+  ansible.builtin.group:
+    name: srv-admin
+    state: present
+  tags:
+    - user_management
+
+- name: "USER-MANAGEMENT | Create user 'srv-admin'"
+  ansible.builtin.user:
+    name: srv-admin
+    comment: "Server Administrator"
+    shell: /bin/bash
+    group: srv-admin
+    groups: sudo
+    create_home: true
+    state: present
+  tags:
+    - user_management
+
+- name: "USER-MANAGEMENT | Grant 'srv-admin' passwordless sudo rights"
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-srv-admin"
+    content: "srv-admin ALL=(ALL) NOPASSWD:ALL"
+    mode: "0440"
+    validate: "visudo -cf %s"
+  tags:
+    - user_management
+
+- name: "USER-MANAGEMENT | Deploy authorized_keys for 'srv-admin'"
+  ansible.posix.authorized_key:
+    user: srv-admin
+    state: present
+    key: "{{ lookup('file', item) }}"
+  with_fileglob:
+    - "{{ role_path }}/files/public_keys/*.pub"
+  tags:
+    - user_management

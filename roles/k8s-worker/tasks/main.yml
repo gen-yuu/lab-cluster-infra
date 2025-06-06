@@ -1,0 +1,26 @@
+---
+- name: "WORKER | Check if the node is already part of a cluster"
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf # このファイルの存在で参加済みか判断
+  register: kubelet_conf_stat
+  changed_when: false
+
+- name: "WORKER | Get a temporary join command from the control plane"
+  # control-planeノード上で `kubeadm token create` を実行し、参加コマンドを取得
+  delegate_to: "{{ groups['k8s_control_plane'][0] }}"
+  ansible.builtin.command: "kubeadm token create --print-join-command"
+  register: join_command_from_master
+  changed_when: false
+  when: not kubelet_conf_stat.stat.exists
+
+- name: "WORKER | Join the node to the Kubernetes cluster"
+  ansible.builtin.command: "{{ join_command_from_master.stdout }}"
+  when: not kubelet_conf_stat.stat.exists
+  changed_when: true
+
+- name: "WORKER | Restart kubelet to ensure it picks up all configurations"
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+    daemon_reload: true
+  when: not kubelet_conf_stat.stat.exists # 初回参加時のみ

@@ -1,8 +1,0 @@
-kube_minor: "1.33" # 2025-06-02時点のcurrent-stableブランチ
-kube_version: "1.33.1-1.1"
-kube_pause_image: "registry.k8s.io/pause:3.10"
-k8s_api_endpoint: "192.168.0.10:6443"
-k8s_pod_network_cidr : "10.244.0.0/16"
-k8s_service_cidr: "10.96.0.0/12"
-k8s_dns_domain: "cluster.local" 
-cilium_chart_version : "1.16.10"

@@ -1,0 +1,5 @@
+---
+k8s_api_endpoint: "192.168.0.10:6443"
+k8s_pod_network_cidr: "10.244.0.0/16"
+k8s_service_cidr: "10.96.0.0/12"
+ansible_python_interpreter: /usr/bin/python3.10

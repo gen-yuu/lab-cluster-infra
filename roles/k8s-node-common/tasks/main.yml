@@ -1,0 +1,15 @@
+---
+- name: Include system configuration tasks
+  ansible.builtin.include_tasks: system-config.yml
+  tags:
+    - system_config
+
+- name: Include container runtime installation and configuration tasks
+  ansible.builtin.include_tasks: container-runtime.yml
+  tags:
+    - container_runtime
+
+- name: Include Kubernetes packages installation tasks
+  ansible.builtin.include_tasks: kube-packages.yml
+  tags:
+    - kube_packages
