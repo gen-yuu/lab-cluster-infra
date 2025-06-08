@@ -8,9 +8,88 @@
 
 SSH の接続情報も Ansible プロジェクト内で管理しているため、リポジトリをクローンし、いくつかの設定を行うだけで、誰でも同じように Playbook を実行できる自己完結した構成を目指しています。
 
+## アーキテクチャ (Architecture)
+
+このリポジトリの Ansible Playbook によって構築される Kubernetes クラスタのアーキテクチャ図です。オンプレミス環境を想定しており、CNI には [Cilium](https://cilium.io/) を採用しています。
+
+```mermaid
+graph TB
+    subgraph CLUSTER
+        direction TB
+        subgraph "CONTROL PLANE"
+            direction TB
+
+            API_Server["<b>kube-api-server</b>"]
+
+            ControllerManager["kube-controller-manager"]
+            Scheduler["kube-scheduler"]
+
+
+            ETCD[("etcd")]
+
+            API_Server <--> ETCD
+            ControllerManager --> API_Server
+            Scheduler --> API_Server
+        end
+
+        subgraph "WORKER NODES"
+            direction LR
+
+            subgraph "Node 1"
+                Kubelet1["kubelet"]
+                Cilium1["<b>Cilium (CNI)"]
+
+                subgraph "Container Runtime"
+                    CRI1[("CRI")]
+                    subgraph "Pods"
+                        Pod1A["Pod"]
+                        Pod1B["Pod"]
+                    end
+                end
+                Kubelet1 --> CRI1
+            end
+
+            subgraph "Node 2"
+                Kubelet2["kubelet"]
+                Cilium2["<b>Cilium (CNI)</b>"]
+
+                subgraph "Container Runtime"
+                    CRI2[("CRI")]
+                    subgraph "Pods "
+                      Pod2A["Pod"]
+                    end
+                end
+                Kubelet2 --> CRI2
+            end
+        end
+
+        API_Server -- Manages --> Kubelet1
+        API_Server -- Manages --> Kubelet2
+        Kubelet1 -- Reports to --> API_Server
+        Kubelet2 -- Reports to --> API_Server
+
+        Cilium1 <--> |"Pod Network<br/>(eBPF Overlay)"| Cilium2
+    end
+
+    User["<b>User / Admin</b><br/>(kubectl)"] --> API_Server
+```
+
+## 使用技術
+
+このインフラを構成する主要なソフトウェアとバージョンは以下の通りです。
+
+| カテゴリ              | コンポーネント | バージョン / 備考                                          |
+| :-------------------- | :------------- | :--------------------------------------------------------- |
+| **OS**                | Ubuntu         | 22.04 LTS                                                  |
+| **IaC**               | Ansible        | 2.18.x                                                     |
+| **Orchestration**     | Kubernetes     | 1.33.x （`roles/k8s-node-common/defaults/main.yml`で指定） |
+| **Container Runtime** | containerd     | 1.7.x                                                      |
+| **CNI**               | Cilium         | 1.16.x (kube-proxy 代替モード)                             |
+| **CLI Tools**         | Helm           | 3.x                                                        |
+
 ## 動作環境
 
-この Playbook を実行する**コントロールノード（実行 PC）**には、以下の環境が必要です。
+この Playbook を実行するコントロールノード（実行 PC）には、以下の環境が必要です。
 
 - macOS
 - Git
