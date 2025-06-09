@@ -8,7 +8,13 @@
 
 SSH の接続情報も Ansible プロジェクト内で管理しているため、リポジトリをクローンし、いくつかの設定を行うだけで、誰でも同じように Playbook を実行できる自己完結した構成を目指しています。
 
-## アーキテクチャ (Architecture)
+| レイヤー                  | 責務                                                                | ツール                         | lab-cluster での役割 |
+| ------------------------- | ------------------------------------------------------------------- | ------------------------------ | -------------------- |
+| L1: インフラ層            | 物理サーバー、VM、ネットワーク、OS の設定                           | Ansible                        | lab-cluster-infra    |
+| L2: K8s クラスタ層        | Kubernetes コンポーネントのインストール、ノードの参加               | Ansible (kubeadm), Cluster API | lab-cluster-infra    |
+| L3: K8s アドオン/アプリ層 | 監視ツール、Ingress、そしてユーザーアプリケーションのデプロイ・管理 | Argo CD, Flux (GitOps)         | lab-cluster-app      |
+
+## アーキテクチャ
 
 このリポジトリの Ansible Playbook によって構築される Kubernetes クラスタのアーキテクチャ図です。オンプレミス環境を想定しており、CNI には [Cilium](https://cilium.io/) を採用しています。
 
@@ -96,7 +102,7 @@ graph TB
 - Python 3.9 以上
 - Homebrew （setup.sh スクリプト内でインストールを試みます）
 
-## 1. 初期設定 (Initial Setup)
+## 1. 初期設定
 
 新しいメンバーがこのリポジトリを使ってクラスタを管理するための最初の手順です。
 
@@ -288,8 +294,7 @@ ansible-playbook --syntax-check playbook-setup-cluster.yml
 
 ## TODO
 
-- [ ] ドキュメントの拡充
-- [ ]　 Ansible Vault による機密情報の暗号化
+- [ ] Ansible Vault による機密情報の暗号化（データサーバの分離のため）
 - [ ] ファクトキャッシュの有効化によるパフォーマンス向上
 - [ ] ノードのクリーンアップ用ロール (`k8s-cleanup`) の作成
 - [ ] バックアップとリストア用のロール作成
