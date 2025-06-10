@@ -1,0 +1,35 @@
+---
+- name: "CONTROL-PLANE | Wait for local API server to be available on 127.0.0.1"
+  ansible.builtin.command: "nc -z 127.0.0.1 6443"
+  register: apiserver_check
+  until: apiserver_check.rc == 0
+  retries: 30 # 10秒 x 30回 = 最大5分待機
+  delay: 10
+  changed_when: false
+  become: false
+  tags:
+    - cilium
+
+- name: "CNI | Add Cilium Helm repository"
+  community.kubernetes.helm_repository: # noqa fqcn[canonical]
+    name: cilium
+    repo_url: https://helm.cilium.io/
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - cilium
+
+- name: "CNI | Deploy or upgrade Cilium using Helm"
+  community.kubernetes.helm: # noqa fqcn[canonical]
+    name: cilium
+    chart_ref: cilium/cilium
+    chart_version: "{{ cilium_chart_version | default('1.16.0') }}"
+    release_namespace: kube-system
+    kubeconfig: "{{ playbook_dir }}/.kube/config" # kubeconfigを明示
+    values: "{{ lookup('template', 'cilium_values.yml.j2') | from_yaml }}"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - cilium

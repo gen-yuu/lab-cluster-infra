@@ -1,0 +1,43 @@
+---
+- name: "Argo CD | 1. Ensure Argo CD namespace exists"
+  kubernetes.core.k8s:
+    name: "{{ argocd_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - argocd
+
+- name: "Argo CD | 2. Render Helm values file to a temporary location"
+  ansible.builtin.template:
+    src: argocd-values.yml.j2
+    dest: "/tmp/argocd-values.yml"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  become: false
+  tags:
+    - argocd
+
+- name: "Argo CD | 3. Add repo and deploy chart in a single atomic task"
+  ansible.builtin.shell: |
+    set -e
+    # Step A: Add or update the repo
+    helm repo add argo {{ argocd_helm_repo_url }} --force-update
+
+    # Step B: Deploy or upgrade the chart using the rendered values file
+    helm upgrade --install argocd argo/argo-cd \
+      --version {{ argocd_helm_chart_version }} \
+      --namespace {{ argocd_namespace }} \
+      -f /tmp/argocd-values.yml
+  args:
+    executable: /bin/bash # Use bash for script execution
+  delegate_to: localhost
+  run_once: true
+  become: false
+  changed_when: true # Assume this task always makes changes for simplicity
+  tags:
+    - argocd

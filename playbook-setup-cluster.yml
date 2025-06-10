@@ -12,9 +12,16 @@
   become: true
   roles:
     - role: k8s-controle-plane
+    - role: cni-cilium
 
 - name: Setup Worker specific settings
   hosts: k8s_worker
   become: true
   roles:
     - role: k8s-worker
+
+- name: Deploy Foundational Add-ons
+  hosts: k8s_controle_plane
+  become: true
+  roles:
+    - role: argocd

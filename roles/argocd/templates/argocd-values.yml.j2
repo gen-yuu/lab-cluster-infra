@@ -1,0 +1,26 @@
+# Argo CD Custom Values
+# This file contains only the overrides from the default chart values.
+# Configure for a Non-HA (High Availability) setup for lab environment.
+
+# Controller settings
+controller:
+  replicas: 1
+
+# Server (UI and API) settings
+server:
+  replicas: 1
+  # Ingress is disabled by default. Enable it if you have an Ingress Controller.
+  ingress:
+    enabled: false
+    # hosts:
+    #   - argocd.your-domain.com
+
+# Repo server settings
+repoServer:
+  replicas: 1
+
+# Redis settings (use bundled, non-HA redis)
+redis:
+  enabled: true
+redis-ha:
+  enabled: false
