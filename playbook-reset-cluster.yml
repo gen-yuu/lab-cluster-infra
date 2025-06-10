@@ -1,0 +1,37 @@
+---
+# 全てのワーカーノードをリセットする
+- name: Reset all Kubernetes Worker Nodes
+  hosts: k8s_worker
+  become: true
+  gather_facts: false
+  roles:
+    - role: cluster-reset
+
+# 全てのコントロールプレーンノードをリセットする
+- name: Reset all Kubernetes Control Plane Nodes
+  hosts: k8s_control_plane
+  become: true
+  gather_facts: false
+  roles:
+    - role: cluster-reset
+
+# 全てのノードを再起動して、状態を完全リフレッシュする
+- name: Reboot all Worker nodes first
+  hosts: k8s_worker
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "REBOOT | Rebooting worker node"
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        boot_time_timeout: 300
+
+- name: Reboot the Control Plane node last
+  hosts: k8s_control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: "REBOOT | Rebooting control plane node"
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        boot_time_timeout: 300

@@ -1,0 +1,48 @@
+---
+- name: "RESET | Run kubeadm reset"
+  ansible.builtin.command: "kubeadm reset -f"
+  register: kubeadm_reset_result
+  changed_when: "'cleaned up successfully' in kubeadm_reset_result.stdout"
+  tags:
+    - reset
+
+- name: "RESET | Stop kubelet and containerd services"
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+  loop:
+    - kubelet
+    - containerd
+  tags:
+    - reset
+
+- name: "RESET | Clean up CNI network interfaces (veth, cilium, etc.)"
+  ansible.builtin.shell: |
+    set -o pipefail
+    ip link | grep -E 'veth|lxc|cilium_' | awk '{print $2}' | sed 's/@.*//' | xargs -I {} ip link delete {} || true
+  register: network_cleanup
+  changed_when: "'does not exist' not in network_cleanup.stderr"
+  failed_when: false
+  tags:
+    - reset
+
+- name: "RESET | Clean up remaining cluster directories"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/cni/net.d
+    - /etc/kubernetes
+    - /var/lib/kubelet
+    - /var/lib/etcd # etcdのデータも完全に削除
+    - /var/lib/containerd # コンテナランタイムの状態を完全に消去
+  tags:
+    - reset
+
+- name: "RESET | Restart containerd to re-create clean state directory"
+  ansible.builtin.systemd:
+    name: containerd
+    state: restarted
+    daemon_reload: true
+  tags:
+    - reset

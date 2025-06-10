@@ -8,10 +8,10 @@
     - role: k8s-node-common
 
 - name: Setup Master specific settings
-  hosts: k8s_controle_plane
+  hosts: k8s_control_plane
   become: true
   roles:
-    - role: k8s-controle-plane
+    - role: k8s-control-plane
     - role: cni-cilium
 
 - name: Setup Worker specific settings
@@ -21,7 +21,9 @@
     - role: k8s-worker
 
 - name: Deploy Foundational Add-ons
-  hosts: k8s_controle_plane
+  hosts: k8s_control_plane
   become: true
+  environment:
+    KUBECONFIG: "{{ playbook_dir }}/.kube/config"
   roles:
     - role: argocd
