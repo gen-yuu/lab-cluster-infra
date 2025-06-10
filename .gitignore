@@ -37,4 +37,4 @@ vault_password.txt
 fetched/
 downloads/
 # 今回の構成で、マスターから取得したkubeconfigを保存するディレクトリ
-.kubeconfig/
+.kube

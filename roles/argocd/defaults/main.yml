@@ -1,0 +1,10 @@
+---
+# Argo CDのインストール先Namespace
+argocd_namespace: "argocd"
+
+# Argo CD Helmチャートのバージョン
+# https://github.com/argoproj/argo-helm/releases
+argocd_helm_chart_version: "8.0.16"
+
+# Helmチャートのリポジトリ
+argocd_helm_repo_url: "https://argoproj.github.io/argo-helm"

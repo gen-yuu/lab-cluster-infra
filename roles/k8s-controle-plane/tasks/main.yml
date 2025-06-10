@@ -47,75 +47,48 @@
   tags:
     - kubeconfig
 
-- name: "CONTROL-PLANE | Check if helm is already installed"
-  ansible.builtin.command: "which helm"
-  register: helm_exists
-  changed_when: false
-  failed_when: false
+- name: "CONTROL-PLANE | Fetch kubeconfig from master to localhost"
+  ansible.builtin.fetch:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ playbook_dir }}/.kube/config" # プロジェクトルートの.kube/configに保存
+    flat: true
+  when: not admin_conf.stat.exists # 初回init時のみ取得
   tags:
-    - helm
+    - kubeconfig
+# - name: "CONTROL-PLANE | Check if helm is already installed"
+#   ansible.builtin.command: "which helm"
+#   register: helm_exists
+#   changed_when: false
+#   failed_when: false
+#   tags:
+#     - helm
 
-- name: "CONTROL-PLANE | Download Helm installation script"
-  ansible.builtin.get_url:
-    url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
-    dest: /tmp/get_helm.sh
-    mode: "0755"
-  when: helm_exists.rc != 0
-  tags:
-    - helm
+# - name: "CONTROL-PLANE | Download Helm installation script"
+#   ansible.builtin.get_url:
+#     url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+#     dest: /tmp/get_helm.sh
+#     mode: "0755"
+#   when: helm_exists.rc != 0
+#   tags:
+#     - helm
 
-- name: "CONTROL-PLANE | Run Helm installation script"
-  ansible.builtin.command: /tmp/get_helm.sh
-  changed_when: true
-  when: helm_exists.rc != 0
-  tags:
-    - helm
+# - name: "CONTROL-PLANE | Run Helm installation script"
+#   ansible.builtin.command: /tmp/get_helm.sh
+#   changed_when: true
+#   when: helm_exists.rc != 0
+#   tags:
+#     - helm
 
-- name: "CONTROL-PLANE | Check if helm-diff plugin is installed"
-  ansible.builtin.command: "helm plugin list"
-  register: helm_plugins
-  changed_when: false
-  tags:
-    - helm
+# - name: "CONTROL-PLANE | Check if helm-diff plugin is installed"
+#   ansible.builtin.command: "helm plugin list"
+#   register: helm_plugins
+#   changed_when: false
+#   tags:
+#     - helm
 
-- name: "CONTROL-PLANE | Install helm-diff plugin"
-  ansible.builtin.command: "helm plugin install https://github.com/databus23/helm-diff"
-  when: "'diff' not in helm_plugins.stdout" # 'diff'という文字がなければインストール
-  changed_when: true
-  tags:
-    - helm
-
-# --- CNIプラグインのデプロイ ---
-- name: "CONTROL-PLANE | Wait for the node to be Ready before installing CNI"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    kubectl --kubeconfig=/etc/kubernetes/admin.conf \
-      get nodes {{ inventory_hostname }} --no-headers | awk '{print $2}'
-  register: node_state
-  retries: 10
-  delay: 15
-  until: "'Ready' in node_state.stdout"
-  changed_when: false
-  when: not admin_conf.stat.exists # 初回init時のみ待機
-  tags:
-    - cilium
-    - wait_node
-
-- name: "CONTROL-PLANE | Add Cilium Helm repository"
-  community.kubernetes.helm_repository: # noqa fqcn[canonical]
-    name: cilium
-    repo_url: https://helm.cilium.io/
-  tags:
-    - cilium
-
-- name: "CONTROL-PLANE | Deploy or upgrade Cilium using Helm"
-  community.kubernetes.helm: # noqa fqcn[canonical]
-    name: cilium
-    chart_ref: cilium/cilium
-    chart_version: "{{ cilium_chart_version }}"
-    release_namespace: kube-system
-    create_namespace: true
-    kubeconfig: /etc/kubernetes/admin.conf
-    values: "{{ lookup('template', 'cilium_values.yml.j2') | from_yaml }}"
-  tags:
-    - cilium
+# - name: "CONTROL-PLANE | Install helm-diff plugin"
+#   ansible.builtin.command: "helm plugin install https://github.com/databus23/helm-diff"
+#   when: "'diff' not in helm_plugins.stdout" # 'diff'という文字がなければインストール
+#   changed_when: true
+#   tags:
+#     - helm

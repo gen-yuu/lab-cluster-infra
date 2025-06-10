@@ -12,6 +12,7 @@
   become: true
   roles:
     - role: k8s-controle-plane
+    - role: cni-cilium
 
 - name: Setup Worker specific settings
   hosts: k8s_worker

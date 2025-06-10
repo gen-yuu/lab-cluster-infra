@@ -1,0 +1,27 @@
+---
+- name: "Argo CD |  Ensure Argo CD namespace exists"
+  kubernetes.core.k8s:
+    name: "{{ argocd_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+  tags:
+    - argocd
+
+- name: "Argo CD |  Add Argo Project Helm repository"
+  community.kubernetes.helm_repository: # noqa: fqcn[canonical]
+    name: argo
+    repo_url: "{{ argocd_helm_repo_url }}"
+  tags:
+    - argocd
+
+- name: "Argo CD |  Deploy Argo CD with Helm"
+  community.kubernetes.helm: # noqa: fqcn[canonical]
+    name: argocd
+    chart_ref: argo/argo-cd
+    chart_version: "{{ argocd_helm_chart_version }}"
+    release_namespace: "{{ argocd_namespace }}"
+    create_namespace: false
+    values: "{{ lookup('template', 'argocd-values.yml.j2') | from_yaml }}"
+  tags:
+    - argocd
