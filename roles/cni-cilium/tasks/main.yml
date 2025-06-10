@@ -1,14 +1,12 @@
 ---
-- name: "CNI | Wait for API server (delegated to localhost)"
-  ansible.builtin.command: "nc -z {{ k8s_api_endpoint.split(':')[0] }} {{ k8s_api_endpoint.split(':')[1] }}"
-  delegate_to: localhost
-  run_once: true # マスターノードが複数でも1回だけ実行
-  become: false # localhostではsudo不要
+- name: "CONTROL-PLANE | Wait for local API server to be available on 127.0.0.1"
+  ansible.builtin.command: "nc -z 127.0.0.1 6443"
   register: apiserver_check
   until: apiserver_check.rc == 0
-  retries: 30
+  retries: 30 # 10秒 x 30回 = 最大5分待機
   delay: 10
   changed_when: false
+  become: false
   tags:
     - cilium
 

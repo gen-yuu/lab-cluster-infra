@@ -19,3 +19,9 @@
   become: true
   roles:
     - role: k8s-worker
+
+- name: Deploy Foundational Add-ons
+  hosts: k8s_controle_plane
+  become: true
+  roles:
+    - role: argocd
