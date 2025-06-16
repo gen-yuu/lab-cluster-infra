@@ -25,7 +25,11 @@ fi
 echo "Installing Python packages from requirements.txt..."
 source .venv/bin/activate
 pip install -r requirements.txt
+ansible-galaxy collection install community.kubernetes
 deactivate # パッケージインストール後に一旦非アクティブ化
+
+mkdir -p ./.kube
+ssh k8s-master "sudo cat /etc/kubernetes/admin.conf" > ./.kube/config
 
 echo "---- Setup complete! ----"
 echo "To activate the virtual environment, run: source .venv/bin/activate"
