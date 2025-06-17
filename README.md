@@ -12,7 +12,7 @@ SSH の接続情報も Ansible プロジェクト内で管理しているため�
 | ------------------------- | ------------------------------------------------------------------- | ------------------------------ | -------------------- |
 | L1: インフラ層            | 物理サーバー、VM、ネットワーク、OS の設定                           | Ansible                        | lab-cluster-infra    |
 | L2: K8s クラスタ層        | Kubernetes コンポーネントのインストール、ノードの参加               | Ansible (kubeadm), Cluster API | lab-cluster-infra    |
-| L3: K8s アドオン/アプリ層 | 監視ツール、Ingress、そしてユーザーアプリケーションのデプロイ・管理 | Argo CD, Flux (GitOps)         | lab-cluster-app      |
+| L3: K8s アドオン/アプリ層 | 監視ツール、Ingress、そしてユーザーアプリケーションのデプロイ・管理 | Argo CD (GitOps)         | lab-cluster-app      |
 
 ## アーキテクチャ
 
