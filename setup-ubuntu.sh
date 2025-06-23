@@ -53,7 +53,7 @@ fi
 # requirements.txtが存在する場合のみ実行
 if [ -f "requirements.txt" ]; then
   echo "Installing Python packages from requirements.txt..."
-  source .venv/bin/activate
+source .venv/bin/activate
   pip install -r requirements.txt
   ansible-galaxy collection install community.kubernetes
   deactivate # パッケージインストール後に一旦非アクティブ化
