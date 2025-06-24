@@ -1,82 +1,163 @@
 ---
-# ===================================================================
-# ステップ 3.1 & 3.2: NVIDIA Container Toolkitのインストール
-# ===================================================================
-- name: "【最終手段・修正版】成功実績のある公式スクリプトを直接実行してリポジトリを設定"
+# ==============================================================
+# Role : gpu_node_common  ★ REV-3 (2025-06-24)
+# Purpose : GPU ノードで NVIDIA Container Toolkit & Device-Plugin を
+#           安定して構成する（libnvidia 1.17.8 系に統一）。
+# ==============================================================
+
+###############################
+# 0. 変数
+###############################
+- name: "Set GPU-node facts"
+  ansible.builtin.set_fact:
+    nvidia_driver_lib_path: "/usr/lib/x86_64-linux-gnu"
+    nvidia_ver: "1.17.8-1" # ⇦ 今後は vars ファイルで一元管理しても良い
+
+###############################
+# 1. リポジトリ登録（重複 list を整理）
+###############################
+- name: "Remove legacy NVIDIA lists (if any)"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/libnvidia-container.list
+    - /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  become: true
+
+- name: "Add single stable/deb/amd64 repo list"
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/deb/amd64/ /
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+
+- name: "Ensure GPG key present"
   ansible.builtin.shell: |
-    set -e
-    distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-    keyring_path="/etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg"
-    list_path="/etc/apt/sources.list.d/nvidia-container-toolkit.list"
-
-    # GPGキーをダウンロード・配置
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o "${keyring_path}"
-
-    # リポジトリリストをダウンロードし、署名キー情報を追記して配置
-    curl -s -L "https://nvidia.github.io/libnvidia-container/${distribution}/libnvidia-container.list" | \
-      sed "s#deb https://#deb [signed-by=${keyring_path}] https://#g" > "${list_path}"
-
-    # aptキャッシュを更新
-    apt-get update
+    mkdir -p /etc/apt/keyrings
+    test -f /etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg || \
+      curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
+      gpg --dearmor -o /etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg
   args:
-    # このスクリプトは、以下のファイルが存在しない場合のみ実行される (冪等性の確保)
-    creates: /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    executable: /bin/bash
   become: true
 
-- name: "nvidia-container-toolkit をインストール"
+###############################
+# 2. パッケージ整備
+###############################
+- name: "Purge legacy runtime & old libs"
   ansible.builtin.apt:
-    name: "nvidia-container-toolkit"
-    state: present
+    name:
+      - nvidia-container-runtime
+      - nvidia-container-toolkit
+      - nvidia-container-toolkit-base
+      - libnvidia-container-tools
+      - libnvidia-container1
+    state: absent
+    purge: yes
+    allow_change_held_packages: yes
+    force: yes
   become: true
 
-# ===================================================================
-# ステップ 3.3: containerd の設定
-# ===================================================================
-- name: "containerdにNVIDIAランタイムを設定 (nvidia-ctk)"
-  ansible.builtin.command: "nvidia-ctk runtime configure --runtime=containerd"
-  register: ctk_configure
-  changed_when: "'The NVIDIA Container Runtime is already configured' not in ctk_configure.stderr"
-  notify: Restart containerd and kubelet
+- name: "Install NVIDIA toolkit stack {{ nvidia_ver }}"
+  ansible.builtin.apt:
+    name:
+      - libnvidia-container1={{ nvidia_ver }}
+      - libnvidia-container-tools={{ nvidia_ver }}
+      - nvidia-container-toolkit-base={{ nvidia_ver }}
+      - nvidia-container-toolkit={{ nvidia_ver }}
+    state: present
+    update_cache: yes
+    allow_change_held_packages: yes
+  become: true
 
-- name: "containerdのデフォルトランタイムを 'nvidia' に変更"
+###############################
+# 3. containerd を NVIDIA ランタイムへ
+###############################
+- name: "Configure containerd via nvidia-ctk"
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=containerd --set-as-default
+  register: ctk_cfg
+  changed_when: "'updated config' in ctk_cfg.stdout or 'INFO' in ctk_cfg.stdout"
+  notify: Restart containerd and kubelet
+  become: true
+
+- name: 'Ensure default_runtime_name="nvidia" in /etc/containerd/config.toml'
   ansible.builtin.lineinfile:
-    path: "/etc/containerd/config.toml"
-    # [plugins."io.containerd.grpc.v1.cri".containerd] セクション内の default_runtime_name を探す
-    regexp: '^( *default_runtime_name *= *).*$'
-    line: '\1"nvidia"' # 見つけた行の "runc" 等を "nvidia" に置換
-    backrefs: yes # regexp のキャプチャグループ (\1) を使う
+    path: /etc/containerd/config.toml
+    regexp: '^\s*default_runtime_name\s*=.*'
+    line: '    default_runtime_name = "nvidia"'
+    backrefs: yes
   notify: Restart containerd and kubelet
+  become: true
 
-- name: "GPUノードにDevice Plugin用の必須ラベルを付与"
-  ansible.builtin.command: "kubectl label node {{ inventory_hostname }} nvidia.com/gpu.present=true --overwrite"
-  register: command_result
-  changed_when: "'labeled' in command_result.stdout"
-  # すでにラベルが存在する場合はエラーになるが、処理は成功とみなす
-  failed_when: command_result.rc != 0 and 'AlreadyExists' not in command_result.stderr
+###############################
+# 4. ノードラベル
+###############################
+- name: "Label node as GPU-capable"
+  ansible.builtin.command: kubectl label node {{ inventory_hostname }} nvidia.com/gpu.present=true --overwrite
+  register: gpu_label
+  changed_when: gpu_label.rc == 0 and 'not labeled' not in gpu_label.stdout
+  failed_when: gpu_label.rc != 0 and 'AlreadyExists' not in gpu_label.stderr
   delegate_to: "{{ groups['k8s_control_plane'][0] }}"
   environment:
     KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
-  become: false 
-# ===================================================================
-# NVIDIA Kubernetes Device Plugin のデプロイ (変更なし)
-# ===================================================================
-- name: "Block for NVIDIA Device Plugin Deployment (Run Once)"
-  block:
-    - name: Add NVIDIA Helm repository
-      community.kubernetes.helm_repository:
-        name: nvdp
-        repo_url: "https://nvidia.github.io/k8s-device-plugin"
-        state: present
+  become: false
 
-    - name: Deploy NVIDIA Device Plugin using Helm
-      community.kubernetes.helm:
-        name: nvdp-plugin
-        chart_ref: nvdp/nvidia-device-plugin
-        release_namespace: nvidia-device-plugin
-        create_namespace: yes
-        state: present
-        update_repo_cache: yes
+###############################
+# 5. Device Plugin (Helm)
+###############################
+- name: "Ensure NVIDIA Helm repo"
+  kubernetes.core.helm_repository:
+    name: nvdp
+    repo_url: https://nvidia.github.io/k8s-device-plugin
+    state: present
+  delegate_to: "{{ groups['k8s_control_plane'][0] }}"
+  environment:
+    KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
   run_once: true
+
+- name: "Deploy / upgrade NVIDIA Device Plugin v0.17.2"
+  kubernetes.core.helm:
+    name: nvdp-plugin
+    chart_ref: nvdp/nvidia-device-plugin
+    release_namespace: nvidia-device-plugin
+    create_namespace: yes
+    force: true
+    wait: true
+    values:
+      image:
+        repository: nvcr.io/nvidia/k8s-device-plugin
+        tag: v0.17.2
+      env: # ★ chart 直下
+        - name: LD_LIBRARY_PATH
+          value: /usr/local/nvidia/lib64
+
+      volumeMounts: # ★ chart 直下
+        - name: host-lib
+          mountPath: /usr/local/nvidia/lib64
+          readOnly: true
+
+      volumes: # ★ chart 直下
+        - name: host-lib
+          hostPath:
+            path: /usr/lib/x86_64-linux-gnu
+            type: Directory
+
+      securityContext:
+        privileged: true
+
+      annotations:
+        apparmor.security.beta.kubernetes.io/pod: unconfined
+        apparmor.security.beta.kubernetes.io/nvidia-device-plugin-ctr: unconfined
+        seccomp.security.alpha.kubernetes.io/pod: unconfined
+
+    update_repo_cache: yes
   delegate_to: "{{ groups['k8s_control_plane'][0] }}"
   environment:
     KUBECONFIG: "/home/{{ ansible_user }}/.kube/config"
+  run_once: true
+  tags:
+    - deploy_device_plugin
