@@ -20,8 +20,18 @@
   roles:
     - role: k8s-worker
 
+- name: Setup GPU Node specific settings
+  hosts: gpu_nodes
+  become: true
+  tags: 
+    - gpu_setup
+  vars:
+    container_runtime: containerd
+  roles:
+    - role: gpu-node-setup
+
 - name: Deploy Foundational Add-ons
-  hosts: k8s_control_plane
+  hosts: k8s_control_plane[0]
   become: true
   environment:
     KUBECONFIG: "{{ playbook_dir }}/.kube/config"

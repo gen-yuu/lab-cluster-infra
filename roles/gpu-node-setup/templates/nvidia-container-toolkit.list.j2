@@ -1,0 +1,6 @@
+{# CUDAリポジトリ向けに、"22.04" からドットを除去して "2204" を生成 #}
+{% set cuda_dist_version = ansible_distribution_version | replace('.', '') %}
+
+{# 1行目はドットなしのバージョン、2行目はドットありのバージョンを使用 #}
+deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg] https://download.nvidia.com/compute/cuda/repos/ubuntu{{ cuda_dist_version }}/x86_64 /
+deb [signed-by=/etc/apt/keyrings/nvidia-container-toolkit-keyring.gpg] https://nvidia.github.io/libnvidia-container/stable/ubuntu{{ ansible_distribution_version }}/amd64 /

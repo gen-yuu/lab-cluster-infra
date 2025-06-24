@@ -28,6 +28,7 @@
     release_namespace: kube-system
     kubeconfig: "{{ playbook_dir }}/.kube/config" # kubeconfigを明示
     values: "{{ lookup('template', 'cilium_values.yml.j2') | from_yaml }}"
+    update_repo_cache: yes
   delegate_to: localhost
   run_once: true
   become: false

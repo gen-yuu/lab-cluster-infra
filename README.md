@@ -223,7 +223,7 @@ inventory.ini に新しいノードを追加した後、--limit オプション�
 
 ```bash
 # 新規ワーカーノード `k8s-worker-3` だけをセットアップ
-ansible-playbook --limit k8s-worker-3 playbook-setup-cluster.yml
+ansible-playbook --limit k8s-worker3 playbook-setup-cluster.yml
 ```
 
 ## プロジェクトの構造
