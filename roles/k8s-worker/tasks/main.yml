@@ -14,7 +14,7 @@
   when: not kubelet_conf_stat.stat.exists
 
 - name: "WORKER | Join the node to the Kubernetes cluster"
-  ansible.builtin.command: "{{ join_command_from_master.stdout }}"
+  ansible.builtin.command: "{{ join_command_from_master.stdout | trim }} --v=5"
   when: not kubelet_conf_stat.stat.exists
   changed_when: true
 
