@@ -1,0 +1,14 @@
+daemonset:
+  securityContext:
+    privileged: true
+  annotations:
+    apparmor.security.beta.kubernetes.io/pod: unconfined
+  volumeMounts:
+    - name: nvidia-driver
+      mountPath: /usr/lib/x86_64-linux-gnu # ← ホストと同じ
+      readOnly: true
+  volumes:
+    - name: nvidia-driver
+      hostPath:
+        path: /usr/lib/x86_64-linux-gnu
+        type: Directory
